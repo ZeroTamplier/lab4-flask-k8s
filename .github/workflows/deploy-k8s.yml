@@ -3,6 +3,7 @@ name: Deploy to Kubernetes
 on:
   push:
     branches: [ main ]
+  workflow_dispatch:  # позволяет запускать вручную
 
 jobs:
   deploy:
@@ -10,16 +11,36 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # Исправленная установка kubectl
       - name: Install kubectl
         run: |
-          curl -LO "https://dl.k8s.io/release/stable.txt/bin/linux/amd64/kubectl"
+          # Скачиваем последнюю стабильную версию kubectl
+          curl -LO "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl"
           chmod +x kubectl
-          sudo mv kubectl /usr/local/bin/
+          sudo mv kubectl /usr/local/bin/kubectl
+          
+          # Проверяем установку
+          kubectl version --client
 
       - name: Setup kubeconfig
         run: |
           mkdir -p $HOME/.kube
           echo "${{ secrets.KUBE_CONFIG }}" > $HOME/.kube/config
+          
+          # Проверяем, что конфиг не пустой
+          if [ ! -s $HOME/.kube/config ]; then
+            echo "❌ KUBE_CONFIG secret is empty!"
+            exit 1
+          fi
+          
+          # Проверяем формат конфига (опционально)
+          head -c 100 $HOME/.kube/config
+
+      # Опционально: тест подключения к кластеру
+      - name: Test cluster connection
+        run: |
+          kubectl cluster-info
+          kubectl get nodes
 
       - name: Apply manifests
         run: |
@@ -27,7 +48,8 @@ jobs:
           kubectl apply -f service.yaml
 
       - name: Wait for rollout
-        run: kubectl rollout status deployment/flask-deployment --timeout=90s
+        run: |
+          kubectl rollout status deployment/flask-deployment --timeout=90s
 
       - name: Show pods and service
         run: |
